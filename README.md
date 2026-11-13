@@ -127,7 +127,7 @@ Only clean rows are used: rows with any multi-step mismatch, a sign of light tra
 - This is not bit-exact. The model explains about 40% of flips; the rest come from each sine unit's own approximation, which we cannot emulate.
 - We observed no AMD output directly.
 - NVIDIA's round-toward-zero prescale is documented from disassembly on older architectures (sm_70/sm_75). We assume Blackwell compiles `__sincosf` the same way and did not verify it.
-- Other vendor differences are not modeled, such as rocRAND's `fmaf` when building `u` and `v`, and possible FMA contraction in cuRAND.
+- AMD's different input step (`fmaf` with a full-size offset when building `u` and `v`) was modeled exactly in `vendor_exact.py`. It changes only 5 of 4.7 million values across both models, so it cannot tell the vendors apart. Whether cuRAND fuses its multiply-add makes no measurable difference either. The NVIDIA result rests on the prescale rounding alone.
 - [SFU-Sim](https://github.com/hzX40000000/SFU-Sim) claims a bit-exact NVIDIA MUFU model, but it ships as a precompiled Linux library, does not cover datacenter Blackwell (sm_100), and was not used here.
 
 ### 3. Hash-routing tables give 148 and 152 without a seed (`tid2eid_layout.py`)
@@ -178,6 +178,7 @@ Only clean rows are used: rows with any multi-step mismatch, a sign of light tra
 | `rows/` | The 15 slices used (21 MB); hashes are checked on every load |
 | `common.py` | Hash-checked loading, Philox4x32-10 (KAT-checked on import) and the `normal_` layout |
 | `v4pro.py` | Findings 1 and 2 |
+| `vendor_exact.py` | Finding 2's input-step check (a negative result) |
 | `tid2eid_layout.py` | Finding 3 |
 | `kimi_posttrain.py` | Finding 4 |
 
