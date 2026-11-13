@@ -1,8 +1,8 @@
 # checkpoint-forensics addendum
 
-An independent analysis of which GPUs created five open-weight models: DeepSeek-V4-Flash, DeepSeek-V4-Pro, Kimi K2.5, Kimi K3 and Kimi K3.1-Pro. It reads the evidence directly from their published weights.
+An analysis of which GPUs created five open-weight models: DeepSeek-V4-Flash, DeepSeek-V4-Pro, Kimi K2.5, Kimi K3 and Kimi K3.1-Pro. It reads the evidence directly from their published weights. It replicates and extends Will DePue's report, [Top Chinese Frontier AI Models Carry the Fingerprint of Export-Controlled NVIDIA Blackwell GPUs](https://unemploymentlabs.com/checkpoint-forensics) ([code](https://github.com/macrogrants/checkpoint-forensics)), published November 12, 2026.
 
-Most of the hardware findings below were reached before we read Will DePue's report, [Top Chinese Frontier AI Models Carry the Fingerprint of Export-Controlled NVIDIA Blackwell GPUs](https://unemploymentlabs.com/checkpoint-forensics) ([code](https://github.com/macrogrants/checkpoint-forensics)), published November 12, 2026. Where they overlap, the two analyses agree. This repository documents both what we found independently and what we added after reading the report.
+**How this was produced.** The analysis was run on November 13, 2026, the day after the report was published, with an AI coding assistant (Claude Code). For the first part of the work, the assistant had no access to the report, its seeds or its code, and it reached findings 3 and 4 from the weights alone. This is a replication and extension, not a claim of priority: the report came first. Where the two overlap, they agree.
 
 **Quick start.** Each script runs offline in a few seconds:
 
@@ -15,14 +15,18 @@ Most of the hardware findings below were reached before we read Will DePue's rep
 
 ## Summary
 
-| # | Finding | Status | Found before reading the report? |
+| # | Finding | Status | Uses the report's seeds? |
 |---|---|---|---|
-| 1 | DeepSeek-V4-Pro's untouched rows are an exact copy of its initialization at **152 SMs**. The report rated V4-Pro "partial survival, 49σ". | Exact (r = 0.999999) | No: it uses the report's published DeepSeek seed |
-| 2 | V4-Pro's floating-point rounding matches **NVIDIA's** sine/cosine code path, not AMD's (paired z = 7.6) | Statistical, not bit-exact | No |
-| 3 | DeepSeek's untrained hash-routing tables put V4-Flash on **148 SMs** and V4-Pro on **152 SMs**, with no seed needed | Exact layout match | **Yes** |
-| 4 | Kimi re-draws its reserved-token rows with a fixed seed. That re-draw ran on **132 SMs** for K2.5 and **152 SMs** for K3. | Exact layout match; timing inferred | **Yes** |
+| 1 | DeepSeek-V4-Pro's untouched rows are an exact copy of its initialization at **152 SMs**. The report rated V4-Pro "partial survival, 49σ". | Exact (r = 0.999999) | Yes |
+| 2 | V4-Pro's floating-point rounding matches **NVIDIA's** sine/cosine code path, not AMD's (paired z = 7.6) | Statistical, not bit-exact | Yes |
+| 3 | DeepSeek's untrained hash-routing tables put V4-Flash on **148 SMs** and V4-Pro on **152 SMs**, with no seed needed | Exact layout match | No |
+| 4 | Kimi re-draws its reserved-token rows with a fixed seed. That re-draw ran on **132 SMs** for K2.5 and **152 SMs** for K3. | Exact layout match; timing inferred | No (the K3 seed is used only as a control) |
 
-By standard SM counts, 132 is the Hopper class (H100, H800, H200), 148 is B200/B300, and 152 is GB200/GB300. An AMD MI300X can also be configured to 152 or 148; finding 2 addresses that.
+How SM counts map to hardware:
+
+- **132** is the Hopper class (H100, H800, H200), and **148** is the B200. We checked both against public spec sheets.
+- **152 = GB200/GB300**, and 148 also covering the B300, come from the report. We could not confirm either from public specs ourselves.
+- The report also notes that an AMD MI300X can be configured to 152 or 148. Finding 2 addresses that for DeepSeek only.
 
 ---
 
@@ -50,9 +54,9 @@ There are two ways to read `G`:
 
 ## What we did, in order
 
-### Before reading the report
+### Without the report
 
-All of this was done on November 13, 2026, without access to the report or its seeds.
+In this part, the assistant worked from the weights alone, without the report, its seeds or its code.
 
 1. **Architecture and lineage from configs and tensor maps.** We read configs and safetensors headers by HTTP range request, without downloading full weights. Kimi K2.5 uses DeepSeek-V3's architecture. K3 is a new design. K3.1-Pro is K3 plus exactly 120 new tensors: a DeepSeek-style sparse-attention indexer on each of K3's 24 full-attention layers. Weight comparisons showed K3.1-Pro is K3 trained further (cosine 0.99+), and that K3 was trained from scratch, not from K2.5 (cosine ≈ 0).
 2. **First hardware guess (wrong).** From priors and the model cards, we first guessed Nvidia Hopper for all five models. The weights later overturned this.
@@ -64,7 +68,7 @@ All of this was done on November 13, 2026, without access to the report or its s
    - We could not find a product with 152.
    - We wrongly ruled out AMD MI300X, missing that it can be partitioned to 152.
 
-### After reading the report
+### With the report
 
 7. **Independent replication.** Our own Philox code reproduces the report's DeepSeek seed (953049583) and K3 seed (20256586, offset 3776). Every SM count we measured in steps 3 and 5 matches the report. The report also resolved our two gaps: 152 = GB200/GB300, and the MI300X caveat.
 8. **V4-Pro exact copy (finding 1).** We applied DeepSeek's seed to V4-Pro's untouched rows.
@@ -89,6 +93,8 @@ All of this was done on November 13, 2026, without access to the report or its s
 (Rows count as matching at r > 0.9999. The other candidate rows were changed by training, some lightly and some fully.)
 
 **What this adds.** The report lists V4-Pro (and V4-Pro-Base, whose rows are byte-identical) as partial survival at 49σ, its weakest Blackwell result. V4-Pro is in fact an exact copy, as strong as V4-Flash. It is initialized the same way as V4-Flash (float32, std 0.006, same seed and rows), so the report's physical MI300X value test, which settled AMD for V4-Flash, can be applied to V4-Pro unchanged.
+
+**Caveat.** We don't know why the report rated V4-Pro as partial survival. Its author may have had a reason that this analysis doesn't see, so treat this as a result to check against his, not a settled correction.
 
 ### 2. V4-Pro's rounding matches NVIDIA, not AMD (`v4pro.py`, part B)
 
@@ -120,6 +126,8 @@ Only clean rows are used: rows with any multi-step mismatch, a sign of light tra
 
 - This is not bit-exact. The model explains about 40% of flips; the rest come from each sine unit's own approximation, which we cannot emulate.
 - We observed no AMD output directly.
+- NVIDIA's round-toward-zero prescale is documented from disassembly on older architectures (sm_70/sm_75). We assume Blackwell compiles `__sincosf` the same way and did not verify it.
+- Other vendor differences are not modeled, such as rocRAND's `fmaf` when building `u` and `v`, and possible FMA contraction in cuRAND.
 - [SFU-Sim](https://github.com/hzX40000000/SFU-Sim) claims a bit-exact NVIDIA MUFU model, but it ships as a precompiled Linux library, does not cover datacenter Blackwell (sm_100), and was not used here.
 
 ### 3. Hash-routing tables give 148 and 152 without a seed (`tid2eid_layout.py`)
@@ -138,7 +146,7 @@ Only clean rows are used: rows with any multi-step mismatch, a sign of light tra
 | 1 | 300/300 | 300/300 | 300/300 | 300/300 | 300/300 | 1/300 |
 | 2 | 300/300 | 300/300 | 300/300 | 300/300 | 300/300 | 0/300 |
 
-**What this adds.** It independently confirms findings 1 and 2, using a different tensor and no seed. We reached it before seeing the report.
+**What this adds.** It confirms finding 1's SM counts using a different tensor and no seed. It says nothing about NVIDIA versus AMD.
 
 ### 4. Kimi's fixed-seed reserved-row re-draw: 132 SMs in K2.5, 152 in K3 (`kimi_posttrain.py`)
 
@@ -151,7 +159,7 @@ Only clean rows are used: rows with any multi-step mismatch, a sign of light tra
 
 **What this adds.** If K3 follows the K2 pattern, this places 152-SM hardware **after** K3's base pretraining, not only at initialization. That speaks to the report's caveat that initialization need not imply training.
 
-**Limits.** The timing is inferred: K3 has no public base model. The report notes at least 64 separately seeded 152-SM processes in K3, and this re-draw may be one of them.
+**Limits.** The timing is inferred: K3 has no public base model. The report notes at least 64 separately seeded 152-SM processes in K3, and this re-draw may be one of them. A partitioned AMD MI300X is not excluded for the Kimi models: the vendor test in finding 2 covers DeepSeek only.
 
 ---
 
@@ -175,6 +183,8 @@ Only clean rows are used: rows with any multi-step mismatch, a sign of light tra
 
 ## Credits
 
-Will DePue's report and code established the method's calibration, published the DeepSeek and Kimi seeds used in findings 1 and 2 and in finding 4's control, and identified 152 SMs as GB200/GB300. Findings 3 and 4 were reached independently, before we read the report.
+Will DePue's report and code established the method's calibration, published the DeepSeek and Kimi seeds used in findings 1 and 2 and in finding 4's control, and identified 152 SMs as GB200/GB300. Findings 3 and 4 do not use the report's seeds.
 
-MIT License.
+## License
+
+The code is MIT-licensed. The files in `rows/` are small slices of DeepSeek's and Moonshot AI's published model weights. They remain under their original model licenses, which are listed on each model's Hugging Face page.
